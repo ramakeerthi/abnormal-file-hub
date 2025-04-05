@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fileService } from '../services/fileService';
-import { FileFilter, SizeRange, DateRange } from '../types/file';
+import { FileFilter } from '../types/file';
 import { MagnifyingGlassIcon, FunnelIcon, XMarkIcon, CalendarIcon } from '@heroicons/react/24/outline';
 
 interface FileSearchProps {

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fileService } from '../services/fileService';
-import { File as FileType, StorageStats, FileFilter } from '../types/file';
+import { File as FileType, FileFilter } from '../types/file';
 import { DocumentIcon, TrashIcon, ArrowDownTrayIcon, ChartBarIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
 import FileSearch from './FileSearch';
 
