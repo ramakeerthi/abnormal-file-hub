@@ -32,10 +32,12 @@ class FileViewSet(viewsets.ModelViewSet):
             total=Sum('size'))['total'] or 0
         
         # Calculate total storage that would have been used without deduplication
+        # This is the sum of all file sizes (including duplicates)
         total_potential_storage = File.objects.aggregate(
             total=Sum('size'))['total'] or 0
         
-        # Calculate storage saved
+        # Calculate storage saved (only from duplicates)
+        # This is the difference between what would have been used and what is actually used
         storage_saved = total_potential_storage - total_storage
         
         # Update stats

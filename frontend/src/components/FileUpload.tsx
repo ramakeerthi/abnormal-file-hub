@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { fileService } from '../services/fileService';
 import { CloudArrowUpIcon } from '@heroicons/react/24/outline';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -10,6 +10,7 @@ interface FileUploadProps {
 export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
   const uploadMutation = useMutation({
@@ -17,7 +18,13 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
     onSuccess: () => {
       // Invalidate and refetch files query
       queryClient.invalidateQueries({ queryKey: ['files'] });
+      // Also invalidate storage stats query
+      queryClient.invalidateQueries({ queryKey: ['storageStats'] });
       setSelectedFile(null);
+      // Reset the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       onUploadSuccess();
     },
     onError: (error) => {
@@ -47,6 +54,21 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
     }
   };
 
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setSelectedFile(e.dataTransfer.files[0]);
+      setError(null);
+    }
+  };
+
   return (
     <div className="p-6">
       <div className="flex items-center mb-4">
@@ -54,7 +76,11 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
         <h2 className="text-xl font-semibold text-gray-900">Upload File</h2>
       </div>
       <div className="mt-4 space-y-4">
-        <div className="flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg">
+        <div 
+          className="flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg"
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
           <div className="space-y-1 text-center">
             <div className="flex text-sm text-gray-600">
               <label
@@ -69,6 +95,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
                   className="sr-only"
                   onChange={handleFileSelect}
                   disabled={uploadMutation.isPending}
+                  ref={fileInputRef}
                 />
               </label>
               <p className="pl-1">or drag and drop</p>
