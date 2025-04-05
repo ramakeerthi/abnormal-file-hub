@@ -1,14 +1,16 @@
 import React, { useState, useRef } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { fileService } from '../services/fileService';
 import { CloudArrowUpIcon } from '@heroicons/react/24/outline';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface FileUploadProps {
-  onUploadSuccess: () => void;
+  onUploadSuccess?: () => void;
 }
 
 export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
@@ -16,140 +18,143 @@ export const FileUpload: React.FC<FileUploadProps> = ({ onUploadSuccess }) => {
   const uploadMutation = useMutation({
     mutationFn: fileService.uploadFile,
     onSuccess: () => {
-      // Invalidate and refetch files query
-      queryClient.invalidateQueries({ queryKey: ['files'] });
-      // Also invalidate storage stats query
-      queryClient.invalidateQueries({ queryKey: ['storageStats'] });
-      setSelectedFile(null);
-      // Reset the file input
+      setIsUploading(false);
+      setUploadProgress(0);
+      setError(null);
+      // Reset file input
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-      onUploadSuccess();
+      // Invalidate queries to refresh the file list and storage stats
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+      queryClient.invalidateQueries({ queryKey: ['storageStats'] });
+      // Call the success callback if provided
+      if (onUploadSuccess) {
+        onUploadSuccess();
+      }
     },
-    onError: (error) => {
+    onError: (err) => {
+      setIsUploading(false);
+      setUploadProgress(0);
       setError('Failed to upload file. Please try again.');
-      console.error('Upload error:', error);
+      console.error('Upload error:', err);
     },
   });
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files[0]) {
-      setSelectedFile(event.target.files[0]);
-      setError(null);
-    }
-  };
-
-  const handleUpload = async () => {
-    if (!selectedFile) {
-      setError('Please select a file');
-      return;
-    }
-
-    try {
-      setError(null);
-      await uploadMutation.mutateAsync(selectedFile);
-    } catch (err) {
-      // Error handling is done in onError callback
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      uploadFile(files[0]);
     }
   };
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
   };
 
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
+    setIsDragging(false);
     
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setSelectedFile(e.dataTransfer.files[0]);
-      setError(null);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      uploadFile(files[0]);
+    }
+  };
+
+  const uploadFile = async (file: File) => {
+    setIsUploading(true);
+    setUploadProgress(0);
+    setError(null);
+    
+    try {
+      // Simulate upload progress
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return 90;
+          }
+          return prev + 10;
+        });
+      }, 300);
+      
+      await uploadMutation.mutateAsync(file);
+      
+      clearInterval(progressInterval);
+      setUploadProgress(100);
+    } catch (err) {
+      console.error('Upload error:', err);
+    }
+  };
+
+  const handleButtonClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
   };
 
   return (
-    <div className="p-6">
-      <div className="flex items-center mb-4">
-        <CloudArrowUpIcon className="h-6 w-6 text-primary-600 mr-2" />
-        <h2 className="text-xl font-semibold text-gray-900">Upload File</h2>
-      </div>
-      <div className="mt-4 space-y-4">
-        <div 
-          className="flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg"
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-        >
-          <div className="space-y-1 text-center">
-            <div className="flex text-sm text-gray-600">
-              <label
-                htmlFor="file-upload"
-                className="relative cursor-pointer bg-white rounded-md font-medium text-primary-600 hover:text-primary-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-primary-500"
-              >
-                <span>Upload a file</span>
-                <input
-                  id="file-upload"
-                  name="file-upload"
-                  type="file"
-                  className="sr-only"
-                  onChange={handleFileSelect}
-                  disabled={uploadMutation.isPending}
-                  ref={fileInputRef}
-                />
-              </label>
-              <p className="pl-1">or drag and drop</p>
-            </div>
-            <p className="text-xs text-gray-500">Any file up to 10MB</p>
-          </div>
+    <div className="bg-white shadow sm:rounded-lg p-6">
+      <div
+        className={`border-2 border-dashed rounded-lg p-8 text-center ${
+          isDragging ? 'border-primary-500 bg-primary-50' : 'border-gray-300'
+        }`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <input
+          type="file"
+          className="hidden"
+          onChange={handleFileChange}
+          ref={fileInputRef}
+        />
+        
+        <CloudArrowUpIcon className="mx-auto h-12 w-12 text-gray-400" />
+        
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={handleButtonClick}
+            disabled={isUploading}
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+          >
+            Select a file
+          </button>
+          <p className="mt-2 text-sm text-gray-500">
+            or drag and drop
+          </p>
         </div>
-        {selectedFile && (
-          <div className="text-sm text-gray-600">
-            Selected: {selectedFile.name}
+        
+        {isUploading && (
+          <div className="mt-4">
+            <div className="w-full bg-gray-200 rounded-full h-2.5">
+              <div
+                className="bg-primary-600 h-2.5 rounded-full"
+                style={{ width: `${uploadProgress}%` }}
+              ></div>
+            </div>
+            <p className="mt-2 text-sm text-gray-500">
+              Uploading... {uploadProgress}%
+            </p>
           </div>
         )}
+        
         {error && (
-          <div className="text-sm text-red-600 bg-red-50 p-2 rounded">
+          <div className="mt-4 text-sm text-red-600">
             {error}
           </div>
         )}
-        <button
-          onClick={handleUpload}
-          disabled={!selectedFile || uploadMutation.isPending}
-          className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-            !selectedFile || uploadMutation.isPending
-              ? 'bg-gray-300 cursor-not-allowed'
-              : 'bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500'
-          }`}
-        >
-          {uploadMutation.isPending ? (
-            <>
-              <svg
-                className="animate-spin -ml-1 mr-3 h-5 w-5 text-white"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                ></circle>
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                ></path>
-              </svg>
-              Uploading...
-            </>
-          ) : (
-            'Upload'
-          )}
-        </button>
       </div>
     </div>
   );

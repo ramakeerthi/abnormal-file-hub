@@ -2,25 +2,99 @@ from django.shortcuts import render, get_object_or_404
 from rest_framework import viewsets, status, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action
-from django_filters.rest_framework import DjangoFilterBackend
+from django_filters.rest_framework import DjangoFilterBackend, FilterSet, CharFilter, NumberFilter, DateFilter
 from .models import File, StorageStats
 from .serializers import FileSerializer
 import os
 import mimetypes
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from django.db import transaction
 import tempfile
 import hashlib
+from datetime import datetime, timedelta
+from django.utils import timezone
+import logging
+
+logger = logging.getLogger('files')  # Get logger specific to files app
 
 # Create your views here.
+
+class FileFilter(FilterSet):
+    """Custom filter for File model"""
+    filename = CharFilter(field_name='original_filename', lookup_expr='icontains')
+    min_size = NumberFilter(field_name='size', lookup_expr='gte')
+    max_size = NumberFilter(field_name='size', lookup_expr='lte')
+    start_date = DateFilter(method='filter_start_date')
+    end_date = DateFilter(method='filter_end_date')
+    file_type = CharFilter(field_name='file_type', lookup_expr='icontains')
+    is_duplicate = CharFilter(method='filter_is_duplicate')
+    
+    def filter_is_duplicate(self, queryset, name, value):
+        if value.lower() == 'true':
+            return queryset.filter(is_duplicate=True)
+        elif value.lower() == 'false':
+            return queryset.filter(is_duplicate=False)
+        return queryset
+    
+    def filter_start_date(self, queryset, name, value):        
+        try:
+            # Convert to datetime and make timezone-aware
+            start_datetime = timezone.make_aware(
+                datetime.combine(value, datetime.min.time())
+            )
+            logger.debug(f"Timezone-aware start_datetime: {start_datetime}")
+            
+            # Filter files uploaded on or after this date
+            filtered = queryset.filter(uploaded_at__gte=start_datetime)
+            logger.debug(f"SQL Query: {filtered.query}")
+            logger.debug(f"Final filtered count: {filtered.count()}")
+            
+            # Log sample of matching records
+            sample = filtered[:5]
+            logger.debug("Sample matching records:")
+            for record in sample:
+                logger.debug(f"- {record.original_filename}: {record.uploaded_at}")
+            
+            return filtered
+        except Exception as e:
+            logger.error(f"Error in filter_start_date: {str(e)}")
+            return queryset
+    
+    def filter_end_date(self, queryset, name, value):        
+        try:
+            # Convert to datetime and make timezone-aware
+            end_datetime = timezone.make_aware(
+                datetime.combine(value, datetime.max.time())
+            )
+            logger.debug(f"Timezone-aware end_datetime: {end_datetime}")
+            
+            # Filter files uploaded on or before this date
+            filtered = queryset.filter(uploaded_at__lte=end_datetime)
+            logger.debug(f"SQL Query: {filtered.query}")
+            logger.debug(f"Final filtered count: {filtered.count()}")
+            
+            # Log sample of matching records
+            sample = filtered[:5]
+            logger.debug("Sample matching records:")
+            for record in sample:
+                logger.debug(f"- {record.original_filename}: {record.uploaded_at}")
+            
+            return filtered
+        except Exception as e:
+            logger.error(f"Error in filter_end_date: {str(e)}")
+            return queryset
+    
+    class Meta:
+        model = File
+        fields = ['filename', 'file_type', 'min_size', 'max_size', 'start_date', 'end_date', 'is_duplicate']
 
 class FileViewSet(viewsets.ModelViewSet):
     queryset = File.objects.all()
     serializer_class = FileSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['file_type']
+    filterset_class = FileFilter
     search_fields = ['original_filename']
-    ordering_fields = ['uploaded_at', 'original_filename', 'size']
+    ordering_fields = ['uploaded_at', 'original_filename', 'size', 'file_type']
     ordering = ['-uploaded_at']
 
     def _update_storage_stats(self):
@@ -159,6 +233,41 @@ class FileViewSet(viewsets.ModelViewSet):
             'last_updated': stats.last_updated,
             'storage_saved_percentage': (stats.total_storage_saved / (stats.total_storage_used + stats.total_storage_saved) * 100) if (stats.total_storage_used + stats.total_storage_saved) > 0 else 0
         })
+    
+    @action(detail=False, methods=['get'])
+    def file_types(self, request):
+        """Get list of unique file types"""
+        # Use distinct() to ensure we get unique file types
+        file_types = File.objects.values_list('file_type', flat=True).distinct().order_by('file_type')
+        # Convert to list and remove any duplicates that might still exist
+        file_types_list = list(file_types)
+        unique_file_types = list(dict.fromkeys(file_types_list))
+        return Response(unique_file_types)
+    
+    @action(detail=False, methods=['get'])
+    def size_ranges(self, request):
+        """Get file size ranges for filtering"""
+        ranges = [
+            {'label': '0-1MB', 'min': 0, 'max': 1024 * 1024},
+            {'label': '1-5MB', 'min': 1024 * 1024, 'max': 5 * 1024 * 1024},
+            {'label': '5-10MB', 'min': 5 * 1024 * 1024, 'max': 10 * 1024 * 1024},
+            {'label': '10-50MB', 'min': 10 * 1024 * 1024, 'max': 50 * 1024 * 1024},
+            {'label': '50MB+', 'min': 50 * 1024 * 1024, 'max': None}
+        ]
+        return Response(ranges)
+    
+    @action(detail=False, methods=['get'])
+    def date_ranges(self, request):
+        """Get date ranges for filtering"""
+        today = datetime.now().date()
+        ranges = [
+            {'label': 'Today', 'start': today.isoformat(), 'end': today.isoformat()},
+            {'label': 'Last 7 days', 'start': (today - timedelta(days=7)).isoformat(), 'end': today.isoformat()},
+            {'label': 'Last 30 days', 'start': (today - timedelta(days=30)).isoformat(), 'end': today.isoformat()},
+            {'label': 'Last 90 days', 'start': (today - timedelta(days=90)).isoformat(), 'end': today.isoformat()},
+            {'label': 'This year', 'start': today.replace(month=1, day=1).isoformat(), 'end': today.isoformat()}
+        ]
+        return Response(ranges)
 
     def get_queryset(self):
         queryset = File.objects.all()
