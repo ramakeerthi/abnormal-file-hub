@@ -3,6 +3,27 @@ import { File as FileType, StorageStats, FileFilter, SizeRange, DateRange } from
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
+// Helper function to get file extension from content type
+const getExtensionFromContentType = (contentType: string): string | null => {
+  // Create a temporary link element to use the browser's built-in MIME type handling
+  const link = document.createElement('a');
+  link.href = `data:${contentType};base64,`;
+  const extension = link.href.split(';')[0].split('/')[1];
+  
+  // If we got a valid extension, return it with a dot
+  if (extension && extension !== '') {
+    return `.${extension}`;
+  }
+  
+  // If no extension found, try to extract from the content type
+  const match = contentType.match(/\/([^;]+)/);
+  if (match && match[1]) {
+    return `.${match[1]}`;
+  }
+  
+  return null;
+};
+
 const fileService = {
   // Get all files with optional filtering
   getFiles: async (filters?: FileFilter): Promise<FileType[]> => {
@@ -42,18 +63,51 @@ const fileService = {
   },
 
   // Download a file
-  downloadFile: async (fileUrl: string, filename: string): Promise<void> => {
-    const response = await axios.get(`${API_URL}/files/${fileUrl}/download/`, {
-      responseType: 'blob',
-    });
-    
-    const url = window.URL.createObjectURL(new Blob([response.data]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+  downloadFile: async (fileId: string, filename: string): Promise<void> => {
+    try {
+      const response = await axios.get(`${API_URL}/files/${fileId}/download/`, {
+        responseType: 'blob',
+      });
+      
+      // Get the content type from the response
+      const contentType = response.headers['content-type'];
+      
+      // Create a blob with the correct type
+      const blob = new Blob([response.data], { type: contentType });
+      
+      // Create a URL for the blob
+      const url = window.URL.createObjectURL(blob);
+      
+      // Create a link element
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Ensure filename has an extension
+      let downloadFilename = filename;
+      if (!downloadFilename.includes('.')) {
+        // Try to determine extension from content type
+        const ext = getExtensionFromContentType(contentType);
+        if (ext) {
+          downloadFilename += ext;
+        }
+      }
+      
+      // Set the download attribute
+      link.setAttribute('download', downloadFilename);
+      
+      // Append to body, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      
+      // Clean up
+      setTimeout(() => {
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      }, 100);
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      throw error;
+    }
   },
 
   // Get storage statistics

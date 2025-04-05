@@ -54,9 +54,9 @@ export const FileList: React.FC = () => {
     }
   }, [deleteMutation]);
 
-  const handleDownload = useCallback(async (fileUrl: string, filename: string) => {
+  const handleDownload = useCallback(async (fileId: string, filename: string) => {
     try {
-      await downloadMutation.mutateAsync({ fileUrl, filename });
+      await downloadMutation.mutateAsync({ fileUrl: fileId, filename });
     } catch (err) {
       console.error('Download error:', err);
     }
@@ -154,7 +154,7 @@ export const FileList: React.FC = () => {
                 </div>
                 <div className="flex space-x-2">
                   <button
-                    onClick={() => handleDownload(file.file, file.original_filename)}
+                    onClick={() => handleDownload(file.id, file.original_filename)}
                     disabled={downloadMutation.isPending}
                     className="inline-flex items-center px-3 py-2 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-md text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
                   >

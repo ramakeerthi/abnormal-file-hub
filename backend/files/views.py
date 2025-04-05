@@ -14,6 +14,7 @@ import hashlib
 from datetime import datetime, timedelta
 from django.utils import timezone
 import logging
+from django.http import FileResponse
 
 logger = logging.getLogger('files')  # Get logger specific to files app
 
@@ -203,20 +204,75 @@ class FileViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['get'])
     def download(self, request, pk=None):
-        file_obj = self.get_object()
-        if file_obj.is_duplicate:
-            file_obj = file_obj.original_file
+        try:
+            file_obj = self.get_object()
             
-        if not os.path.exists(file_obj.file.path):
+            # If this is a duplicate, get the original file
+            if file_obj.is_duplicate:
+                if not file_obj.original_file:
+                    return Response(
+                        {'error': 'Original file not found'},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+                file_obj = file_obj.original_file
+            
+            # Get the absolute path of the file
+            file_path = file_obj.file.path
+            logger.debug(f"Attempting to serve file from path: {file_path}")
+            
+            # Check if file exists
+            if not os.path.exists(file_path):
+                logger.error(f"File not found at path: {file_path}")
+                return Response(
+                    {'error': 'File not found on server'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Open the file without using a context manager
+            try:
+                # Open the file in binary read mode
+                file_handle = open(file_path, 'rb')
+                
+                # Get the content type and extension
+                content_type = file_obj.file_type
+                if not content_type:
+                    content_type = mimetypes.guess_type(file_path)[0] or 'application/octet-stream'
+                
+                # Get the extension from mimetypes
+                extension = mimetypes.guess_extension(content_type)
+                if not extension:
+                    # If mimetypes can't determine the extension, try to get it from the original filename
+                    extension = os.path.splitext(file_obj.original_filename)[1]
+                
+                # Ensure the filename has the correct extension
+                filename = file_obj.original_filename
+                if not filename.lower().endswith(extension.lower()):
+                    # Remove any existing extension and add the correct one
+                    filename = os.path.splitext(filename)[0] + extension
+                
+                # Create a FileResponse with the open file handle
+                response = FileResponse(file_handle, as_attachment=True, filename=filename)
+                response['Content-Type'] = content_type
+                
+                # The file will be closed automatically when the response is sent
+                return response
+                    
+            except Exception as e:
+                logger.error(f"Error reading file {file_obj.original_filename}: {str(e)}")
+                # Make sure to close the file if there was an error
+                if 'file_handle' in locals() and file_handle:
+                    file_handle.close()
+                return Response(
+                    {'error': 'Error reading file'},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in download endpoint: {str(e)}")
             return Response(
-                {'error': 'File not found on server'},
-                status=status.HTTP_404_NOT_FOUND
+                {'error': 'Error processing download request'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-        response = Response()
-        response['Content-Disposition'] = f'attachment; filename="{file_obj.original_filename}"'
-        response['X-Accel-Buffering'] = 'no'
-        return response
 
     @action(detail=False, methods=['get'])
     def storage_stats(self, request):
