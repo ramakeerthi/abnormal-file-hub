@@ -43,18 +43,9 @@ class FileFilter(FilterSet):
             start_datetime = timezone.make_aware(
                 datetime.combine(value, datetime.min.time())
             )
-            logger.debug(f"Timezone-aware start_datetime: {start_datetime}")
             
             # Filter files uploaded on or after this date
             filtered = queryset.filter(uploaded_at__gte=start_datetime)
-            logger.debug(f"SQL Query: {filtered.query}")
-            logger.debug(f"Final filtered count: {filtered.count()}")
-            
-            # Log sample of matching records
-            sample = filtered[:5]
-            logger.debug("Sample matching records:")
-            for record in sample:
-                logger.debug(f"- {record.original_filename}: {record.uploaded_at}")
             
             return filtered
         except Exception as e:
@@ -67,18 +58,9 @@ class FileFilter(FilterSet):
             end_datetime = timezone.make_aware(
                 datetime.combine(value, datetime.max.time())
             )
-            logger.debug(f"Timezone-aware end_datetime: {end_datetime}")
             
             # Filter files uploaded on or before this date
             filtered = queryset.filter(uploaded_at__lte=end_datetime)
-            logger.debug(f"SQL Query: {filtered.query}")
-            logger.debug(f"Final filtered count: {filtered.count()}")
-            
-            # Log sample of matching records
-            sample = filtered[:5]
-            logger.debug("Sample matching records:")
-            for record in sample:
-                logger.debug(f"- {record.original_filename}: {record.uploaded_at}")
             
             return filtered
         except Exception as e:
